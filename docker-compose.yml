@@ -9,11 +9,11 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/backend
-    environment:
-      - MONGODB_URI=mongodb://mongo:27017/pipeline_db
     depends_on:
       - mongo
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
 
   frontend:
     build:

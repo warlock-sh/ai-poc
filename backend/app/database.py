@@ -1,15 +1,47 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional, Literal
 import os
 from bson import ObjectId
+
+class StateInput(BaseModel):
+    id: str
+    name: str
+    data_type: str
+    description: Optional[str] = None
+
+class StateOutput(BaseModel):
+    id: str
+    name: str
+    data_type: str
+    description: Optional[str] = None
+    
+class State(BaseModel):
+    id: str
+    type: str  # "start", "llm", "process", "end", etc.
+    name: str
+    description: Optional[str] = None
+    position: Dict[str, float]  # {x: 100, y: 100}
+    inputs: List[StateInput] = []
+    outputs: List[StateOutput] = []
+    config: Optional[Dict[str, Any]] = None  # Type-specific configuration
+
+class Transition(BaseModel):
+    id: str
+    source_id: str
+    target_id: str
+    source_output_id: str
+    target_input_id: str
+    label: Optional[str] = None
 
 class Pipeline(BaseModel):
     id: Optional[str] = None
     name: str
     description: str
-    nodes: List[Dict[str, Any]]
-    edges: List[Dict[str, Any]]
+    states: List[State] = []
+    transitions: List[Transition] = []
+    nodes: List[Dict[str, Any]] = []  # Legacy field for compatibility
+    edges: List[Dict[str, Any]] = []  # Legacy field for compatibility
     
     # Add model config for Pydantic v2 compatibility
     class Config:
@@ -18,6 +50,12 @@ class Pipeline(BaseModel):
         json_encoders = {
             ObjectId: str
         }
+
+class AnthropicConfig(BaseModel):
+    model: str = "claude-3-7-sonnet-20250219" 
+    temperature: float = 0.7
+    max_tokens: int = 1000
+    system_prompt: Optional[str] = None
 
 # Global variables for database connection
 client = None
