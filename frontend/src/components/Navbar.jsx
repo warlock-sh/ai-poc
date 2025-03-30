@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Flex, Heading, Button } from '@chakra-ui/react';
+import { Box, Flex, Heading, Button, HStack } from '@chakra-ui/react';
 import { Link } from 'react-router-dom';
 
 const Navbar = () => {
@@ -9,9 +9,14 @@ const Navbar = () => {
         <Link to="/">
           <Heading size="md">Agentic Pipeline Manager</Heading>
         </Link>
-        <Link to="/create">
-          <Button colorScheme="whiteAlpha">Create New Pipeline</Button>
-        </Link>
+        <HStack spacing={4}>
+          <Link to="/executions">
+            <Button colorScheme="whiteAlpha" variant="outline">Active Executions</Button>
+          </Link>
+          <Link to="/create">
+            <Button colorScheme="whiteAlpha">Create New Pipeline</Button>
+          </Link>
+        </HStack>
       </Flex>
     </Box>
   );

@@ -43,7 +43,14 @@ const PipelineList = () => {
 
   return (
     <Box maxW="1200px" mx="auto" p={5}>
-      <Heading mb={6}>Pipelines</Heading>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={6}>
+        <Heading>Pipelines</Heading>
+        <Link to="/executions">
+          <Button colorScheme="blue" variant="outline">
+            Active Executions
+          </Button>
+        </Link>
+      </Box>
       
       {pipelines.length === 0 ? (
         <Box textAlign="center" py={10}>

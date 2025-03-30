@@ -523,6 +523,9 @@ const PipelineDetail = () => {
     try {
       setExecuting(true);
       
+      // Close the modal immediately
+      onExecuteClose();
+      
       // Send request to execute pipeline
       const response = await fetch(`/api/pipelines/${id}/execute`, {
         method: 'POST',
@@ -544,13 +547,21 @@ const PipelineDetail = () => {
       // Set up WebSocket connection for real-time updates
       connect(executionId);
       
-      // Don't close the modal yet, but change it to show progress
+      // Initialize execution context
       setExecutionContext({
         execution_id: executionId,
         status: "running",
         history: [],
         variables: {},
         currentStateId: null
+      });
+      
+      toast({
+        title: 'Pipeline execution started',
+        description: `Execution ID: ${executionId.substring(0, 8)}... - Connect to the WebSocket for real-time updates`,
+        status: 'info',
+        duration: 3000,
+        isClosable: true,
       });
       
     } catch (error) {
@@ -614,6 +625,11 @@ const PipelineDetail = () => {
           <Button colorScheme="green" onClick={onExecuteOpen}>
             Execute
           </Button>
+          <Link to="/executions">
+            <Button colorScheme="blue" variant="outline">
+              View Executions
+            </Button>
+          </Link>
           <Link to="/">
             <Button variant="outline">Back to Pipelines</Button>
           </Link>

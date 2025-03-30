@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
 from bson import ObjectId
 import os
 import json
 from uuid import uuid4
-from fastapi import BackgroundTasks
+import logging
 from arq.connections import RedisSettings
+from arq import create_pool
+from datetime import datetime
 
 from app.database import (
     connect_to_mongo, 
@@ -21,7 +23,13 @@ from app.database import (
 )
 from app.execution import get_execution_engine, ExecutionContext
 from app.integrations.anthropic import get_anthropic_client
-from arq import create_pool
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -38,6 +46,12 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_db_client():
     await connect_to_mongo()
+    
+    # Create executions collection if it doesn't exist
+    db = await get_database()
+    if "executions" not in await db.list_collection_names():
+        await db.create_collection("executions")
+        logger.info("Created executions collection")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
@@ -63,6 +77,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 async def execution_websocket(websocket: WebSocket, execution_id: str):
     """WebSocket endpoint for real-time pipeline execution updates."""
     await websocket.accept()
+    logger.info(f"WebSocket connection established for execution: {execution_id}")
     
     # Create a callback for broadcasting execution updates
     async def broadcast_callback(data: Dict[str, Any]):
@@ -80,6 +95,7 @@ async def execution_websocket(websocket: WebSocket, execution_id: str):
     except WebSocketDisconnect:
         # Unregister the callback when the client disconnects
         engine.unregister_ws_callback(execution_id)
+        logger.info(f"WebSocket connection closed for execution: {execution_id}")
     except Exception as e:
         logger.error(f"Error in WebSocket connection: {str(e)}")
         engine.unregister_ws_callback(execution_id)
@@ -282,7 +298,117 @@ async def delete_transition(pipeline_id: str, transition_id: str, db=Depends(get
     
     return {"message": f"Transition {transition_id} deleted"}
 
-# Execution endpoints
+# Execution management endpoints
+@app.get("/api/executions")
+async def list_executions(db=Depends(get_database)):
+    """List all executions with their status."""
+    cursor = db.executions.find().sort("started_at", -1).limit(100)
+    executions = await cursor.to_list(length=100)
+    
+    # Convert ObjectId to string for id field
+    for execution in executions:
+        if "_id" in execution:
+            execution["id"] = str(execution.get("_id"))
+            del execution["_id"]
+        
+        # Format dates
+        if "started_at" in execution and execution["started_at"]:
+            execution["started_at"] = execution["started_at"].isoformat()
+        if "completed_at" in execution and execution["completed_at"]:
+            execution["completed_at"] = execution["completed_at"].isoformat()
+    
+    return executions
+
+@app.get("/api/executions/{execution_id}")
+async def get_execution(execution_id: str, db=Depends(get_database)):
+    """Get execution details by ID."""
+    execution = await db.executions.find_one({"execution_id": execution_id})
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    
+    # Convert ObjectId to string
+    if "_id" in execution:
+        execution["id"] = str(execution.get("_id"))
+        del execution["_id"]
+    
+    # Format dates
+    if "started_at" in execution and execution["started_at"]:
+        execution["started_at"] = execution["started_at"].isoformat()
+    if "completed_at" in execution and execution["completed_at"]:
+        execution["completed_at"] = execution["completed_at"].isoformat()
+    
+    return execution
+
+@app.post("/api/executions/{execution_id}/pause")
+async def pause_execution(execution_id: str, db=Depends(get_database)):
+    """Pause an execution that is in progress."""
+    # Get execution engine
+    engine = get_execution_engine()
+    
+    # Pause the execution
+    paused = await engine.pause_execution(execution_id)
+    if not paused:
+        raise HTTPException(
+            status_code=404, 
+            detail="Execution not found or cannot be paused"
+        )
+    
+    # Update execution status in database
+    await db.executions.update_one(
+        {"execution_id": execution_id},
+        {"$set": {"status": "paused"}}
+    )
+    
+    return {"message": f"Execution {execution_id} paused"}
+
+@app.post("/api/executions/{execution_id}/resume")
+async def resume_execution(execution_id: str, db=Depends(get_database)):
+    """Resume a paused execution."""
+    # Get execution engine
+    engine = get_execution_engine()
+    
+    # Resume the execution
+    resumed = await engine.resume_execution(execution_id)
+    if not resumed:
+        raise HTTPException(
+            status_code=404, 
+            detail="Execution not found or cannot be resumed"
+        )
+    
+    # Update execution status in database
+    await db.executions.update_one(
+        {"execution_id": execution_id},
+        {"$set": {"status": "running"}}
+    )
+    
+    return {"message": f"Execution {execution_id} resumed"}
+
+@app.post("/api/executions/{execution_id}/terminate")
+async def terminate_execution(execution_id: str, db=Depends(get_database)):
+    """Terminate an execution that is in progress."""
+    # Get execution engine
+    engine = get_execution_engine()
+    
+    # Terminate the execution
+    terminated = await engine.terminate_execution(execution_id)
+    if not terminated:
+        raise HTTPException(
+            status_code=404, 
+            detail="Execution not found or cannot be terminated"
+        )
+    
+    # Update execution status in database
+    await db.executions.update_one(
+        {"execution_id": execution_id},
+        {"$set": {
+            "status": "terminated",
+            "completed_at": datetime.now()
+        }}
+    )
+    
+    return {"message": f"Execution {execution_id} terminated"}
+
+# Execution endpoint
 @app.post("/api/pipelines/{pipeline_id}/execute")
 async def execute_pipeline(pipeline_id: str, data: Dict[str, Any], db=Depends(get_database)):
     try:
@@ -297,27 +423,56 @@ async def execute_pipeline(pipeline_id: str, data: Dict[str, Any], db=Depends(ge
     
     # Convert id to string for serialization
     pipeline_doc["id"] = str(pipeline_doc.get("_id"))
-    del pipeline_doc["_id"]  # Remove ObjectId which can't be serialized
+    pipeline_name = pipeline_doc.get("name", "Unnamed Pipeline")
+    serializable_doc = {k: v for k, v in pipeline_doc.items() if k != "_id"}
     
     # Get the initial prompt from request data
     initial_prompt = data.get("initial_prompt", "")
     
     # Create execution context
     engine = get_execution_engine()
-    context = await engine.create_execution(Pipeline(**pipeline_doc), initial_prompt)
+    pipeline_obj = Pipeline(**serializable_doc)
+    context = await engine.create_execution(pipeline_obj, initial_prompt)
     
-    # Create Redis connection for enqueueing task
-    redis = await create_pool(RedisSettings(host="redis"))
+    # Store the initial execution record
+    await db.executions.insert_one({
+        "execution_id": context.execution_id,
+        "pipeline_id": pipeline_id,
+        "pipeline_name": pipeline_name,
+        "status": "initialized",
+        "started_at": datetime.now(),
+        "initial_prompt": initial_prompt,
+        "current_state_id": None,
+        "current_state_name": None
+    })
     
-    # Enqueue the task
-    job = await redis.enqueue_job(
-        'execute_pipeline_task', 
-        pipeline_id,
-        pipeline_doc,
-        initial_prompt
-    )
-    
-    logger.info(f"Enqueued pipeline execution task with job ID: {job.job_id}")
+    try:
+        # Create Redis connection for enqueueing task
+        redis = await create_pool(RedisSettings(
+            host=os.getenv("REDIS_HOST", "redis"),
+            port=int(os.getenv("REDIS_PORT", 6379)),
+            password=os.getenv("REDIS_PASSWORD", None)
+        ))
+        
+        # Store execution_id in pipeline data
+        serializable_doc["execution_id"] = context.execution_id
+        
+        # Enqueue the task
+        job = await redis.enqueue_job(
+            'execute_pipeline_task',
+            pipeline_id,
+            serializable_doc,
+            initial_prompt
+        )
+        
+        logger.info(f"Enqueued pipeline execution task with job ID: {job.job_id} for execution: {context.execution_id}")
+    except Exception as e:
+        logger.error(f"Error enqueueing execution task: {str(e)}")
+        # Fall back to direct execution if Redis is not available
+        # This is not ideal for production but allows testing without Redis
+        logger.warning("Falling back to direct execution without worker. This is not recommended for production.")
+        background_tasks = BackgroundTasks()
+        background_tasks.add_task(engine.execute_pipeline, pipeline_obj, initial_prompt)
     
     # Return execution ID immediately
     return {

@@ -42,6 +42,7 @@ class Pipeline(BaseModel):
     transitions: List[Transition] = []
     nodes: List[Dict[str, Any]] = []  # Legacy field for compatibility
     edges: List[Dict[str, Any]] = []  # Legacy field for compatibility
+    execution_id: Optional[str] = None  # For tracking active executions
     
     # Add model config for Pydantic v2 compatibility
     class Config:

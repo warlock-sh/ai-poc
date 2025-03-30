@@ -11,6 +11,23 @@ services:
       - ./backend:/backend
     depends_on:
       - mongo
+      - redis
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: python /backend/worker_entry.py
+    volumes:
+      - ./backend:/backend
+    environment:
+      - LOG_LEVEL=INFO
+    depends_on:
+      - mongo
+      - redis
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -35,6 +52,15 @@ services:
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
 
 volumes:
-  mongo_data: 
+  mongo_data:
+  redis_data: 
