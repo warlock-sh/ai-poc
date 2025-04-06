@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Callable
 from uuid import uuid4
 import logging
 import asyncio
+from datetime import datetime
 
 from app.database import Pipeline, State, Transition
 from app.state_types.base.context import ExecutionContext
@@ -116,6 +117,35 @@ class ExecutionEngine:
             
             logger.info(f"[Execution:{context.execution_id}] Completed state '{state.name}' with outputs: {log_outputs}")
             
+            # Save outputs to the database
+            try:
+                from app.database import get_database
+                db = await get_database()
+                
+                # Create a history entry for this state execution
+                history_entry = {
+                    "state_id": state.id,
+                    "state_name": state.name,
+                    "action": "completed",
+                    "outputs": outputs,
+                    "timestamp": datetime.utcnow()
+                }
+                
+                # Update execution record with this history entry and the state outputs
+                await db.executions.update_one(
+                    {"execution_id": context.execution_id},
+                    {"$push": {"history": history_entry},
+                     "$set": {
+                        "state_outputs": {state.id: outputs},
+                        "updated_at": datetime.utcnow()
+                     }
+                    }
+                )
+                
+                logger.debug(f"Saved state outputs to database for {context.execution_id}")
+            except Exception as e:
+                logger.warning(f"Could not save state outputs to database: {str(e)}")
+            
             # Broadcast execution completed for this state
             await self.broadcast_update(context.execution_id, {
                 "type": "state_completed",
@@ -130,6 +160,35 @@ class ExecutionEngine:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"[Execution:{context.execution_id}] Error in state '{state.name}': {error_msg}")
+            
+            # Save error to database
+            try:
+                from app.database import get_database
+                db = await get_database()
+                
+                # Create a history entry for this state execution error
+                history_entry = {
+                    "state_id": state.id,
+                    "state_name": state.name,
+                    "action": "error",
+                    "error": error_msg,
+                    "timestamp": datetime.utcnow()
+                }
+                
+                # Update execution record with this history entry
+                await db.executions.update_one(
+                    {"execution_id": context.execution_id},
+                    {"$push": {"history": history_entry},
+                     "$set": {
+                        "error": error_msg,
+                        "updated_at": datetime.utcnow()
+                     }
+                    }
+                )
+                
+                logger.debug(f"Saved state error to database for {context.execution_id}")
+            except Exception as db_error:
+                logger.warning(f"Could not save state error to database: {str(db_error)}")
             
             # Broadcast execution error
             await self.broadcast_update(context.execution_id, {
@@ -194,6 +253,35 @@ class ExecutionEngine:
             inputs={source_output.name: source_value if isinstance(source_value, str) else str(source_value)[:100]},
             outputs={target_input.name: source_value if isinstance(source_value, str) else str(source_value)[:100]}
         )
+        
+        # Save transition data to database
+        try:
+            from app.database import get_database
+            db = await get_database()
+            
+            # Create a history entry for this transition
+            history_entry = {
+                "state_id": f"{source_state.id}->{target_state.id}",
+                "source_state_name": source_state.name,
+                "target_state_name": target_state.name,
+                "action": "transition",
+                "source_output": source_output.name,
+                "target_input": target_input.name,
+                "value_preview": str(source_value)[:100] if isinstance(source_value, str) else str(source_value)[:100],
+                "timestamp": datetime.utcnow(),
+                "inputs": {source_output.name: str(source_value)[:500] if isinstance(source_value, str) else str(source_value)[:500]},
+                "outputs": {target_input.name: str(source_value)[:500] if isinstance(source_value, str) else str(source_value)[:500]}
+            }
+            
+            # Update execution record with this history entry
+            await db.executions.update_one(
+                {"execution_id": context.execution_id},
+                {"$push": {"history": history_entry}}
+            )
+            
+            logger.debug(f"Saved transition data to database for {context.execution_id}")
+        except Exception as e:
+            logger.warning(f"Could not save transition data to database: {str(e)}")
         
         # Broadcast transition executed
         await self.broadcast_update(context.execution_id, {

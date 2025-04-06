@@ -92,18 +92,16 @@ const PipelineDetail = () => {
       case 'state_completed':
         // Update execution context history
         setExecutionContext(prev => {
-          const updatedHistory = [
-            ...(prev.history || []),
-            {
-              state_id: data.state_id,
-              action: 'completed',
-              outputs: data.outputs
-            }
-          ];
-          return {
-            ...prev,
-            history: updatedHistory
-          };
+          // Get the updated execution data from server
+          fetch(`/api/executions/${data.execution_id}`)
+            .then(response => response.json())
+            .then(executionData => {
+              setExecutionContext(executionData);
+            })
+            .catch(error => console.error("Failed to fetch updated execution data:", error));
+          
+          // Return the existing state for now
+          return prev;
         });
         break;
         
@@ -452,14 +450,24 @@ const PipelineDetail = () => {
     try {
       const transitionId = Math.random().toString(36).substring(7);
       
-      // Create transition payload
+      // Get the names of the selected output and input
+      const sourceOutputs = getSourceOutputs();
+      const targetInputs = getTargetInputs();
+      
+      const sourceOutput = sourceOutputs.find(output => output.id === newTransition.outputId);
+      const targetInput = targetInputs.find(input => input.id === newTransition.inputId);
+      
+      const sourceOutputName = sourceOutput ? sourceOutput.name : newTransition.outputId;
+      const targetInputName = targetInput ? targetInput.name : newTransition.inputId;
+      
+      // Create transition payload with readable names in the label
       const transitionPayload = {
         id: transitionId,
         source_id: newTransition.sourceId,
         target_id: newTransition.targetId,
         source_output_id: newTransition.outputId,
         target_input_id: newTransition.inputId,
-        label: `${newTransition.outputId} → ${newTransition.inputId}`
+        label: `${sourceOutputName} → ${targetInputName}`
       };
       
       // Send to server

@@ -15,8 +15,8 @@ export const StartNode = memo(({ data }) => {
       width: '150px',
       textAlign: 'center'
     }}>
-      <Handle type="source" position={Position.Bottom} />
       <div>{data.label}</div>
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 });
@@ -35,9 +35,9 @@ export const LLMNode = memo(({ data }) => {
       width: '150px',
       textAlign: 'center'
     }}>
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
       <div>{data.label}</div>
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 });
@@ -56,7 +56,7 @@ export const EndNode = memo(({ data }) => {
       width: '150px',
       textAlign: 'center'
     }}>
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
       <div>{data.label}</div>
     </div>
   );

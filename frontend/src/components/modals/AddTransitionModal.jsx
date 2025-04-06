@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Modal,
   ModalOverlay,
@@ -26,6 +26,17 @@ const AddTransitionModal = ({
   targetInputs,
   onAddTransition
 }) => {
+  // Set default values when modal opens or options change
+  useEffect(() => {
+    if (isOpen && sourceOutputs.length > 0 && targetInputs.length > 0) {
+      setNewTransition({
+        ...newTransition,
+        outputId: sourceOutputs[0].id,
+        inputId: targetInputs[0].id
+      });
+    }
+  }, [isOpen, sourceOutputs, targetInputs]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
       <ModalOverlay />

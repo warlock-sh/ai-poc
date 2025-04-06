@@ -22,13 +22,17 @@ import {
   Stack,
   StackDivider,
   IconButton,
-  Tooltip
+  Tooltip,
+  Collapse,
+  Divider
 } from '@chakra-ui/react';
 import { Link } from 'react-router-dom';
-import { RepeatIcon, ExternalLinkIcon, InfoIcon } from '@chakra-ui/icons';
+import { RepeatIcon, ExternalLinkIcon, InfoIcon, ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
 
 const ExecutionDashboard = () => {
   const [executions, setExecutions] = useState([]);
+  const [groupedExecutions, setGroupedExecutions] = useState({});
+  const [expandedGroups, setExpandedGroups] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const toast = useToast();
@@ -45,6 +49,26 @@ const ExecutionDashboard = () => {
       
       const data = await response.json();
       setExecutions(data);
+      
+      // Group executions by execution_id
+      const grouped = {};
+      data.forEach(execution => {
+        if (!grouped[execution.execution_id]) {
+          grouped[execution.execution_id] = [];
+        }
+        grouped[execution.execution_id].push(execution);
+      });
+      
+      // Sort each group by timestamp (assuming there's a timestamp field)
+      Object.keys(grouped).forEach(executionId => {
+        grouped[executionId].sort((a, b) => {
+          const dateA = new Date(a.started_at || 0);
+          const dateB = new Date(b.started_at || 0);
+          return dateA - dateB;
+        });
+      });
+      
+      setGroupedExecutions(grouped);
     } catch (error) {
       console.error('Error fetching executions:', error);
       toast({
@@ -60,6 +84,14 @@ const ExecutionDashboard = () => {
     }
   }, [toast]);
   
+  // Toggle expansion of a group
+  const toggleGroup = (executionId) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [executionId]: !prev[executionId]
+    }));
+  };
+
   // Pause execution
   const handlePauseExecution = async (executionId) => {
     try {
@@ -223,7 +255,7 @@ const ExecutionDashboard = () => {
                 Active Executions
               </Heading>
               <Text pt="2" fontSize="sm">
-                This dashboard shows the status of all AGENTIC executions. Running executions can be paused or terminated.
+                This dashboard shows the status of all AGENTIC executions. Click on a row to see all updates for that execution.
               </Text>
             </Box>
             <Box>
@@ -248,7 +280,7 @@ const ExecutionDashboard = () => {
           <Spinner size="xl" />
           <Text mt={4}>Loading executions...</Text>
         </Box>
-      ) : executions.length === 0 ? (
+      ) : Object.keys(groupedExecutions).length === 0 ? (
         <Box textAlign="center" p={5} borderWidth="1px" borderRadius="lg">
           <Text>No executions found.</Text>
         </Box>
@@ -256,6 +288,7 @@ const ExecutionDashboard = () => {
         <Table variant="simple">
           <Thead>
             <Tr>
+              <Th width="30px"></Th>
               <Th>ID</Th>
               <Th>Pipeline</Th>
               <Th>Status</Th>
@@ -266,77 +299,146 @@ const ExecutionDashboard = () => {
             </Tr>
           </Thead>
           <Tbody>
-            {executions.map((execution) => (
-              <Tr key={execution.execution_id}>
-                <Td>
-                  <Tooltip label={execution.execution_id}>
-                    <Text>{execution.execution_id.slice(0, 8)}...</Text>
-                  </Tooltip>
-                </Td>
-                <Td>
-                  <HStack>
-                    <Text>{execution.pipeline_name || 'Unknown'}</Text>
-                    <Tooltip label="View Pipeline">
-                      <ChakraLink as={Link} to={`/pipelines/${execution.pipeline_id}`}>
-                        <ExternalLinkIcon boxSize={3} />
-                      </ChakraLink>
-                    </Tooltip>
-                  </HStack>
-                </Td>
-                <Td>
-                  <Badge colorScheme={getStatusColor(execution.status)}>
-                    {execution.status}
-                  </Badge>
-                </Td>
-                <Td>{formatDate(execution.started_at)}</Td>
-                <Td>{formatDate(execution.completed_at)}</Td>
-                <Td>
-                  <Tooltip label={execution.current_state_id || 'N/A'}>
-                    <Text>{execution.current_state_name || 'N/A'}</Text>
-                  </Tooltip>
-                </Td>
-                <Td>
-                  <HStack spacing={2}>
-                    {execution.status === 'running' && (
-                      <>
-                        <Button 
-                          size="sm" 
-                          colorScheme="yellow" 
-                          onClick={() => handlePauseExecution(execution.execution_id)}
-                        >
-                          Pause
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          colorScheme="red" 
-                          onClick={() => handleTerminateExecution(execution.execution_id)}
-                        >
-                          Terminate
-                        </Button>
-                      </>
-                    )}
-                    {execution.status === 'paused' && (
-                      <Button 
-                        size="sm" 
-                        colorScheme="blue"
-                        onClick={() => handleResumeExecution(execution.execution_id)}
-                      >
-                        Resume
-                      </Button>
-                    )}
-                    <Tooltip label="View Execution Details">
-                      <IconButton 
-                        icon={<InfoIcon />} 
-                        size="sm" 
-                        as={Link}
-                        to={`/pipelines/${execution.pipeline_id}?execution=${execution.execution_id}`}
-                        aria-label="Details"
+            {Object.entries(groupedExecutions).map(([executionId, execList]) => {
+              // Get the most recent execution for this ID
+              const latestExecution = execList[execList.length - 1];
+              
+              return (
+                <React.Fragment key={executionId}>
+                  <Tr 
+                    onClick={() => toggleGroup(executionId)} 
+                    cursor="pointer"
+                    bg={expandedGroups[executionId] ? "gray.50" : "white"}
+                    _hover={{ bg: "gray.50" }}
+                  >
+                    <Td>
+                      <IconButton
+                        icon={expandedGroups[executionId] ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        variant="ghost"
+                        size="sm"
+                        aria-label={expandedGroups[executionId] ? "Collapse" : "Expand"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleGroup(executionId);
+                        }}
                       />
-                    </Tooltip>
-                  </HStack>
-                </Td>
-              </Tr>
-            ))}
+                    </Td>
+                    <Td>
+                      <Tooltip label={executionId}>
+                        <Text>{executionId.slice(0, 8)}...</Text>
+                      </Tooltip>
+                    </Td>
+                    <Td>
+                      <HStack>
+                        <Text>{latestExecution.pipeline_name || 'Unknown'}</Text>
+                        <Tooltip label="View Pipeline">
+                          <ChakraLink as={Link} to={`/pipelines/${latestExecution.pipeline_id}`}>
+                            <ExternalLinkIcon boxSize={3} />
+                          </ChakraLink>
+                        </Tooltip>
+                      </HStack>
+                    </Td>
+                    <Td>
+                      <Badge colorScheme={getStatusColor(latestExecution.status)}>
+                        {latestExecution.status}
+                      </Badge>
+                    </Td>
+                    <Td>{formatDate(latestExecution.started_at)}</Td>
+                    <Td>{formatDate(latestExecution.completed_at)}</Td>
+                    <Td>
+                      <Tooltip label={latestExecution.current_state_id || 'N/A'}>
+                        <Text>{latestExecution.current_state_name || 'N/A'}</Text>
+                      </Tooltip>
+                    </Td>
+                    <Td>
+                      <HStack spacing={2}>
+                        {latestExecution.status === 'running' && (
+                          <>
+                            <Button 
+                              size="sm" 
+                              colorScheme="yellow" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePauseExecution(executionId);
+                              }}
+                            >
+                              Pause
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              colorScheme="red" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTerminateExecution(executionId);
+                              }}
+                            >
+                              Terminate
+                            </Button>
+                          </>
+                        )}
+                        {latestExecution.status === 'paused' && (
+                          <Button 
+                            size="sm" 
+                            colorScheme="blue"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleResumeExecution(executionId);
+                            }}
+                          >
+                            Resume
+                          </Button>
+                        )}
+                        <Tooltip label="View Execution Details">
+                          <IconButton 
+                            icon={<InfoIcon />} 
+                            size="sm" 
+                            as={Link}
+                            to={`/pipelines/${latestExecution.pipeline_id}?execution=${executionId}`}
+                            aria-label="Details"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </Tooltip>
+                      </HStack>
+                    </Td>
+                  </Tr>
+                  
+                  {/* Expanded history rows */}
+                  <Tr>
+                    <Td colSpan={8} p={0}>
+                      <Collapse in={expandedGroups[executionId]} animateOpacity>
+                        <Box p={4} bg="gray.50">
+                          <Heading size="sm" mb={3}>Execution History</Heading>
+                          <Table variant="simple" size="sm">
+                            <Thead>
+                              <Tr>
+                                <Th>Timestamp</Th>
+                                <Th>Status</Th>
+                                <Th>State</Th>
+                                <Th>Details</Th>
+                              </Tr>
+                            </Thead>
+                            <Tbody>
+                              {execList.map((exec, index) => (
+                                <Tr key={`${executionId}-${index}`}>
+                                  <Td>{formatDate(exec.started_at)}</Td>
+                                  <Td>
+                                    <Badge colorScheme={getStatusColor(exec.status)}>
+                                      {exec.status}
+                                    </Badge>
+                                  </Td>
+                                  <Td>{exec.current_state_name || 'N/A'}</Td>
+                                  <Td>{exec.details || 'No details available'}</Td>
+                                </Tr>
+                              ))}
+                            </Tbody>
+                          </Table>
+                        </Box>
+                      </Collapse>
+                    </Td>
+                  </Tr>
+                </React.Fragment>
+              );
+            })}
           </Tbody>
         </Table>
       )}

@@ -26,12 +26,46 @@ const PipelineCreator = () => {
     setIsSubmitting(true);
     
     try {
-      // Create a new pipeline with empty nodes and edges
+      // Generate IDs for default states
+      const startStateId = `start-${Math.random().toString(36).substring(7)}`;
+      const endStateId = `end-${Math.random().toString(36).substring(7)}`;
+      
+      // Create default states
+      const defaultStates = [
+        {
+          id: startStateId,
+          type: 'start',
+          name: 'Start',
+          description: 'Pipeline entry point',
+          position: { x: 100, y: 200 },
+          outputs: [{
+            id: `${startStateId}-out-0`,
+            name: 'initial_prompt',
+            data_type: 'string'
+          }],
+          inputs: []
+        },
+        {
+          id: endStateId,
+          type: 'end',
+          name: 'End',
+          description: 'Pipeline output',
+          position: { x: 500, y: 200 },
+          inputs: [{
+            id: `${endStateId}-in-0`,
+            name: 'final_output',
+            data_type: 'string'
+          }],
+          outputs: []
+        }
+      ];
+      
+      // Create a new pipeline with default nodes
       const newPipeline = {
         name,
         description,
-        nodes: [],
-        edges: []
+        states: defaultStates,
+        transitions: []
       };
       
       const response = await fetch('/api/pipelines', {
@@ -50,7 +84,7 @@ const PipelineCreator = () => {
       
       toast({
         title: 'Pipeline created.',
-        description: 'Your new pipeline has been created successfully.',
+        description: 'Your new pipeline has been created with default Start and End nodes.',
         status: 'success',
         duration: 5000,
         isClosable: true,
